@@ -1,63 +1,102 @@
+import json
 import requests
-import datetime
-from config import tg_bot_token,open_weather_token
-from aiogram import Bot,types
-from aiogram.dispatcher import Dispatcher
-from aiogram.utils import executor
-
-bot= Bot(token=tg_bot_token)
-dp=Dispatcher(bot)
+from bs4 import BeautifulSoup
+from datetime import datetime
+import time
 
 
-@dp.message_handler(commands=['start'])
-async def start_command(message:types.message):
-    await message.reply('Привет! Напиши мне название города и я пришлю сводку погоды!')
-
-@dp.message_handler()
-async def get_weather(message:types.message):
-    code_to_smile = {
-        'Clear': 'Ясно \U00002600',
-        'Clouds':'Облачно \U00002601',
-        'Rain': 'Дождь \U00002614',
-        'Drizzle': 'Дождь \U00002614',
-        'Thunderstorm': 'Гроза \U000026A1',
-        'Snow': 'Снег \U0001F328',
-        'Mist': 'Туман \U0001F32B'
+def get_first_news():
+    headers = {
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
     }
 
+    url = "https://www.securitylab.ru/news/"
+    r = requests.get(url=url, headers=headers)
 
-    try:
-        r = requests.get (
-            f"http://api.openweathermap.org/data/2.5/weather?q={message.text}&appid={open_weather_token}&units=metric"
-        )
-        data=r.json()
+    soup = BeautifulSoup(r.text, "lxml")
+    articles_cards = soup.find_all("a", class_="article-card")
 
-        city= data['name']
-        cur_weather = data['main']['temp']
+    news_dict = {}
+    for article in articles_cards:
+        article_title = article.find("h2", class_="article-card-title").text.strip()
+        article_desc = article.find("p").text.strip()
+        article_url = f'https://www.securitylab.ru{article.get("href")}'
 
-        weather_description = data['weather'][0]['main']
-        if weather_description in code_to_smile:
-            wd = code_to_smile[weather_description]
+        article_date_time = article.find("time").get("datetime")
+        date_from_iso = datetime.fromisoformat(article_date_time)
+        date_time = datetime.strftime(date_from_iso, "%Y-%m-%d %H:%M:%S")
+        article_date_timestamp = time.mktime(datetime.strptime(date_time, "%Y-%m-%d %H:%M:%S").timetuple())
+
+        article_id = article_url.split("/")[-1]
+        article_id = article_id[:-4]
+
+        # print(f"{article_title} | {article_url} | {article_date_timestamp}")
+
+        news_dict[article_id] = {
+            "article_date_timestamp": article_date_timestamp,
+            "article_title": article_title,
+            "article_url": article_url,
+            "article_desc": article_desc
+        }
+
+    with open("news_dict.json", "w") as file:
+        json.dump(news_dict, file, indent=4, ensure_ascii=False)
+
+
+def check_news_update():
+    with open("news_dict.json") as file:
+        news_dict = json.load(file)
+
+    headers = {
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
+    }
+
+    url = "https://www.securitylab.ru/news/"
+    r = requests.get(url=url, headers=headers)
+
+    soup = BeautifulSoup(r.text, "lxml")
+    articles_cards = soup.find_all("a", class_="article-card")
+
+    fresh_news = {}
+    for article in articles_cards:
+        article_url = f'https://www.securitylab.ru{article.get("href")}'
+        article_id = article_url.split("/")[-1]
+        article_id = article_id[:-4]
+
+        if article_id in news_dict:
+            continue
         else:
-            wd = 'Посмотри в окно, не пойму что там за погода!'
+            article_title = article.find("h2", class_="article-card-title").text.strip()
+            article_desc = article.find("p").text.strip()
 
-        humidity = data['main']['humidity']
-        pressure = data['main']['pressure']
-        wind = data['wind']['speed']
-        sunrise_timestamp = datetime.datetime.fromtimestamp(data['sys']['sunrise'])
-        sunset_timestamp = datetime.datetime.fromtimestamp(data['sys']['sunset'])
+            article_date_time = article.find("time").get("datetime")
+            date_from_iso = datetime.fromisoformat(article_date_time)
+            date_time = datetime.strftime(date_from_iso, "%Y-%m-%d %H:%M:%S")
+            article_date_timestamp = time.mktime(datetime.strptime(date_time, "%Y-%m-%d %H:%M:%S").timetuple())
 
-        await message.reply(f"***{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}***\n"
-            f"Погода в городе: {city}\nТемпература: {cur_weather}C {wd} \n"
-              f"Влажность: {humidity}%\nДавление: {pressure} мм.рт.ст\nВетер: {wind}\n"
-              f"Восход солнца: {sunrise_timestamp}\n"
-              f"Заход солнца: {sunset_timestamp}\n"
-              f"Хорошего дня!")
-    except:
-        await message.reply("Проверьте название города")
+            news_dict[article_id] = {
+                "article_date_timestamp": article_date_timestamp,
+                "article_title": article_title,
+                "article_url": article_url,
+                "article_desc": article_desc
+            }
+
+            fresh_news[article_id] = {
+                "article_date_timestamp": article_date_timestamp,
+                "article_title": article_title,
+                "article_url": article_url,
+                "article_desc": article_desc
+            }
+
+    with open("news_dict.json", "w") as file:
+        json.dump(news_dict, file, indent=4, ensure_ascii=False)
+
+    return fresh_news
 
 
+def main():
+    print(check_news_update())
 
 
 if __name__ == '__main__':
-    executor.start_polling(dp)
+    main()

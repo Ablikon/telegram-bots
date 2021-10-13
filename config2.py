@@ -1,0 +1,2 @@
+token = "2066298632:AAFjuiB4a3IwCrXnISoEMy4gXRC-Ed9t37U"
+user_id = 1191555775
